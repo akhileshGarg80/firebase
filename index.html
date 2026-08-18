@@ -38,7 +38,7 @@
   }
   h1,h2,h3,.display{ font-family:'Sora', sans-serif; letter-spacing:-0.01em; }
 
-  /* Left panel */
+  /* ---------- Left panel: identity / console ---------- */
   .panel-left{
     flex:0 0 42%;
     background:
@@ -109,6 +109,7 @@
   .session-dot.err{ background:var(--danger); box-shadow:0 0 0 3px rgba(249,112,102,0.2); }
   @keyframes pulse{ 0%,100%{ opacity:1;} 50%{ opacity:0.45; } }
 
+  /* terminal log */
   .console{
     margin-top:34px;
     background: rgba(255,255,255,0.03);
@@ -126,10 +127,12 @@
   .console-line .t{ color:#5B6584; flex:none; }
   .console-line.ok .m{ color:var(--teal); }
   .console-line.err .m{ color:var(--danger); }
+  .console-cursor{ display:inline-block; width:6px; height:12px; background:var(--teal); margin-left:2px; animation:blink 1s step-end infinite; vertical-align:-2px; }
+  @keyframes blink{ 50%{ opacity:0; } }
   .console::-webkit-scrollbar{ width:6px; }
   .console::-webkit-scrollbar-thumb{ background: rgba(255,255,255,0.15); border-radius:3px; }
 
-  /* Right panel */
+  /* ---------- Right panel: form ---------- */
   .panel-right{
     flex:1;
     display:flex;
@@ -254,11 +257,14 @@
   .alert.success{ background:var(--success-bg); color:#067647; }
   .alert svg{ flex:none; margin-top:1px; }
 
-  .profile{ display:none; align-items:center; gap:12px; margin-top:18px; padding-top:18px; border-top:1px solid var(--line); }
+  .profile{ display:none; align-items:center; gap:12px; margin-top:2px; padding-top:18px; border-top:1px solid var(--line); }
   .profile.show{ display:flex; }
-  .profile img{ width:44px; height:44px; border-radius:50%; border:1px solid var(--line); object-fit:cover; }
+  .profile img{ width:44px; height:44px; border-radius:50%; border:1px solid var(--line); }
   .profile .name{ font-weight:600; font-size:14px; }
   .profile .email{ font-size:12.5px; color:var(--slate); }
+
+  .field-error{ font-size:12px; color:var(--danger); margin-top:6px; display:none; }
+  .field-error.show{ display:block; }
 
   @media (max-width: 860px){
     body{ flex-direction:column; }
@@ -274,7 +280,7 @@
 </head>
 <body>
 
-  <!-- LEFT PANEL -->
+  <!-- LEFT: identity / live console -->
   <div class="panel-left">
     <div class="brand">
       <div class="brand-mark">
@@ -302,7 +308,7 @@
     </div>
   </div>
 
-  <!-- RIGHT PANEL -->
+  <!-- RIGHT: forms -->
   <div class="panel-right">
     <div class="card">
 
@@ -315,7 +321,7 @@
         <span id="alertSuccessText"></span>
       </div>
 
-      <div class="tabs" id="tabContainer">
+      <div class="tabs">
         <div class="tab active" id="tabLogin" onclick="switchTab('login')">Log in</div>
         <div class="tab" id="tabRegister" onclick="switchTab('register')">Create account</div>
       </div>
@@ -375,7 +381,6 @@
         </button>
       </div>
 
-      <!-- PROFILE CARD DISPLAY -->
       <div class="profile" id="profileBlock">
         <img id="userPhoto" src="" alt="Profile photo" />
         <div>
@@ -416,20 +421,22 @@
   const auth = getAuth(app);
   const googleProvider = new GoogleAuthProvider();
 
-  // Explicit Render URL set
   const BACKEND_URL = "https://firebasebackend-4rwv.onrender.com";
 
+  // Mobile browsers frequently block or mishandle popups, so use a
+  // full-page redirect flow for Google sign-in on small/touch devices.
   const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent)
     || (window.matchMedia && window.matchMedia("(max-width: 860px)").matches);
 
   const GOOGLE_PENDING_KEY = "authConsole:googleRedirectPending";
 
+  // Redirect back to this same page after clicking the verification link
   const actionCodeSettings = {
     url: window.location.href,
     handleCodeInApp: false,
   };
 
-  // DOM Elements
+  // ---------- DOM refs ----------
   const stageTitle = document.getElementById("stageTitle");
   const stageSub = document.getElementById("stageSub");
   const sessionDot = document.getElementById("sessionDot");
@@ -450,8 +457,8 @@
   const loginBtn = document.getElementById("loginBtn");
   const registerBtn = document.getElementById("registerBtn");
   const googleBtn = document.getElementById("googleBtn");
-  const tabContainer = document.getElementById("tabContainer");
 
+  // ---------- Console / status helpers ----------
   function log(message, kind = "") {
     const line = document.createElement("div");
     line.className = "console-line" + (kind ? " " + kind : "");
@@ -492,30 +499,13 @@
   }
 
   function setLoading(btn, isLoading, label) {
-    if(!btn) return;
     btn.disabled = isLoading;
-    btn.innerHTML = isLoading ? `<span class="spinner"></span> Working…` : label;
+    btn.innerHTML = isLoading
+      ? `<span class="spinner"></span> Working…`
+      : label;
   }
 
-  function renderProfile(user, backendUserData = {}) {
-    userNameEl.textContent = backendUserData.name || user.displayName || user.email;
-    userEmailTextEl.textContent = user.email;
-    
-    const photo = user.photoURL || backendUserData.photoURL;
-    if (photo) {
-      userPhotoEl.src = photo;
-      userPhotoEl.style.display = "block";
-    } else {
-      userPhotoEl.style.display = "none";
-    }
-
-    // Hide input forms and show authenticated profile block
-    document.getElementById("viewLogin").style.display = "none";
-    document.getElementById("viewRegister").style.display = "none";
-    tabContainer.style.display = "none";
-    profileBlock.classList.add("show");
-  }
-
+  // ---------- Tabs ----------
   window.switchTab = (which) => {
     clearAlerts();
     document.getElementById("tabLogin").classList.toggle("active", which === "login");
@@ -547,12 +537,11 @@
     updateStrength();
   };
 
-  // Sync session with Render backend
+  // ---------- Backend sync helper ----------
   async function syncWithBackend(user) {
     log("Requesting ID token…");
-    const idToken = await user.getIdToken(true);
-    log("Syncing with backend...");
-    
+    const idToken = await user.getIdToken(true); // force refresh token
+    log("Syncing with backend…");
     const res = await fetch(`${BACKEND_URL}/api/auth/sync`, {
       method: "POST",
       headers: {
@@ -563,80 +552,169 @@
     const data = await res.json();
 
     if (res.ok) {
-      setSession("live", `signed in · ${user.email}`);
-      setLocked(true, "Session active", "Verified and fully synced with backend.");
+      setSession("live", `signed in · ${data.user.email}`);
+      setLocked(true, "Session active", "You're verified and synced with the backend.");
       showSuccess("Signed in successfully.");
-      renderProfile(user, data.user || {});
+
+      userNameEl.textContent = data.user.name || data.user.email;
+      userEmailTextEl.textContent = data.user.email;
+      profileBlock.classList.add("show");
+
+      if (data.user.photoURL) {
+        userPhotoEl.src = data.user.photoURL;
+        userPhotoEl.style.display = "inline-block";
+      } else {
+        userPhotoEl.style.display = "none";
+      }
     } else {
       setSession("err", "backend rejected session");
       showError(data.message || "Backend sync failed.");
     }
   }
 
-  // Handle global auth changes
+  // ---------- Auto-check on page load / after verify redirect ----------
   onAuthStateChanged(auth, async (user) => {
     if (!user) {
       setSession("", "no active session");
-      setLocked(false, "Awaiting session…", "Sign in or create an account on the right.");
+      setLocked(false, "Awaiting session…", "Sign in or create an account on the right. This panel mirrors your live auth state.");
       log("No active session.");
-      profileBlock.classList.remove("show");
-      tabContainer.style.display = "flex";
-      document.getElementById("viewLogin").style.display = "block";
       return;
     }
 
-    log(`Auth state triggered — ${user.email}`);
-    await user.reload();
+    log(`Auth state changed — ${user.email}`);
+    await user.reload(); // fetch latest verification status
 
-    if (user.emailVerified || user.providerData.some(p => p.providerId === 'google.com')) {
-      log("Account active. Syncing details...", "ok");
-      renderProfile(user); // Optimistic UI update before network request completes
+    if (user.emailVerified) {
+      log("Email verified. Logging in automatically…", "ok");
+      setLocked(true, "Verifying…", "Confirming your session with the backend.");
       try {
         await syncWithBackend(user);
       } catch (err) {
-        showError("Backend error: " + err.message);
+        showError(err.message);
       }
     } else {
       setSession("err", "email not verified");
-      setLocked(false, "Verify your email", "Check your inbox for the confirmation link.");
-      showError("Email not verified yet.");
+      setLocked(false, "Verify your email", "Check your inbox and click the verification link to continue.");
+      showError("Your email isn't verified yet. Check your inbox for the link.");
     }
   });
 
-  // Catch mobile redirect results
-  async function handleRedirectResult() {
-    const wasPending = sessionStorage.getItem(GOOGLE_PENDING_KEY);
-    if (wasPending) {
-      setLoading(googleBtn, true);
-      setLocked(true, "Signing in...", "Processing Google auth response.");
-      log("Handling redirect result...");
+  // ---------- Register ----------
+  window.registerUser = async () => {
+    clearAlerts();
+    const email = document.getElementById("regEmail").value.trim();
+    const password = document.getElementById("regPassword").value;
+
+    if (!email || !password) {
+      showError("Enter both an email and a password.");
+      return;
     }
+
+    setLoading(registerBtn, true);
     try {
-      const result = await getRedirectResult(auth);
-      if (result?.user) {
-        log("Google account authorized successfully.", "ok");
-        renderProfile(result.user);
-        await syncWithBackend(result.user);
-      }
+      const userCred = await createUserWithEmailAndPassword(auth, email, password);
+      await sendEmailVerification(userCred.user, actionCodeSettings);
+      showSuccess("Account created. Check your inbox to verify your email — this page will log you in automatically once you click the link.");
     } catch (err) {
-      if (err?.code) showError(err.message);
+      if (err.code === "auth/email-already-in-use") {
+        log("Email already in use — checking verification status…");
+        try {
+          const checkRes = await fetch(`${BACKEND_URL}/api/auth/check-unverified`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email }),
+          });
+          const checkData = await checkRes.json();
+
+          if (checkData.verified) {
+            showError("This account is already verified. Please log in instead.");
+            switchTab("login");
+          } else if (checkData.deleted) {
+            try {
+              const newUserCred = await createUserWithEmailAndPassword(auth, email, password);
+              await sendEmailVerification(newUserCred.user, actionCodeSettings);
+              showSuccess("Cleared the old unverified attempt and created a new account. Verification link sent.");
+            } catch (retryErr) {
+              showError(retryErr.message);
+            }
+          } else {
+            showError("Something went wrong. Please try again.");
+          }
+        } catch (backendErr) {
+          showError("Couldn't reach the backend: " + backendErr.message);
+        }
+      } else {
+        showError(err.message);
+      }
     } finally {
-      sessionStorage.removeItem(GOOGLE_PENDING_KEY);
-      if (wasPending) setLoading(googleBtn, false, googleBtnLabel);
+      setLoading(registerBtn, false, "Create account");
     }
-  }
-  handleRedirectResult();
+  };
+
+  // ---------- Login ----------
+  window.loginUser = async () => {
+    clearAlerts();
+    const email = document.getElementById("loginEmail").value.trim();
+    const password = document.getElementById("loginPassword").value;
+
+    if (!email || !password) {
+      showError("Enter both an email and a password.");
+      return;
+    }
+
+    setLoading(loginBtn, true);
+    try {
+      const userCred = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCred.user;
+
+      if (!user.emailVerified) {
+        await sendEmailVerification(user, actionCodeSettings);
+        showError("Your email isn't verified yet. We've resent the verification link.");
+        return;
+      }
+
+      await syncWithBackend(user);
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setLoading(loginBtn, false, "Log in");
+    }
+  };
+
+  // ---------- Forgot Password ----------
+  window.forgotPassword = async () => {
+    clearAlerts();
+    const email = document.getElementById("loginEmail").value.trim();
+
+    if (!email) {
+      showError("Enter your email in the field above first.");
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      showSuccess("Password reset link sent to your email.");
+    } catch (err) {
+      showError(err.message);
+    }
+  };
 
   const googleBtnLabel = `<svg width="17" height="17" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.4-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.6 19 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 16.2 3 9.4 7.4 6.3 14.7z"/><path fill="#4CAF50" d="M24 45c5.4 0 10.3-2.1 14-5.5l-6.5-5.4C29.4 35.9 26.8 37 24 37c-5.3 0-9.6-3.4-11.2-8.1l-6.6 5.1C9.3 40.5 16.1 45 24 45z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-1 2.8-2.9 5.1-5.3 6.6l6.5 5.4C39.9 37.5 45 31.5 45 24c0-1.4-.1-2.7-.4-3.5z"/></svg> Sign in with Google`;
 
+  // ---------- Google Sign-In ----------
+  // Desktop: popup (fast, no page reload). Mobile: full-page redirect,
+  // since in-app browsers and mobile Chrome/Safari routinely block or
+  // silently fail popups.
   window.googleSignIn = async () => {
     clearAlerts();
+
     if (isMobile) {
       setLoading(googleBtn, true);
-      log("Redirecting to Google...");
+      log("Redirecting to Google sign-in…");
       sessionStorage.setItem(GOOGLE_PENDING_KEY, "1");
       try {
         await signInWithRedirect(auth, googleProvider);
+        // Page navigates away here — code below this line won't run.
       } catch (err) {
         sessionStorage.removeItem(GOOGLE_PENDING_KEY);
         showError(err.message);
@@ -648,8 +726,9 @@
     setLoading(googleBtn, true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      renderProfile(result.user);
-      await syncWithBackend(result.user);
+      const user = result.user;
+      // Google accounts are always verified — sync straight away
+      await syncWithBackend(user);
     } catch (err) {
       showError(err.message);
     } finally {
@@ -657,71 +736,32 @@
     }
   };
 
-  window.registerUser = async () => {
-    clearAlerts();
-    const email = document.getElementById("regEmail").value.trim();
-    const password = document.getElementById("regPassword").value;
-
-    if (!email || !password) {
-      showError("Enter email and password.");
-      return;
+  // ---------- Catch the result when we land back after a redirect ----------
+  async function handleRedirectResult() {
+    const wasPending = sessionStorage.getItem(GOOGLE_PENDING_KEY);
+    if (wasPending) {
+      setLoading(googleBtn, true);
+      setLocked(false, "Finishing Google sign-in…", "Confirming your redirect back from Google.");
+      log("Back from Google redirect — checking result…");
     }
-
-    setLoading(registerBtn, true);
     try {
-      const userCred = await createUserWithEmailAndPassword(auth, email, password);
-      await sendEmailVerification(userCred.user, actionCodeSettings);
-      showSuccess("Verification link sent. Check your email.");
-    } catch (err) {
-      showError(err.message);
-    } finally {
-      setLoading(registerBtn, false, "Create account");
-    }
-  };
-
-  window.loginUser = async () => {
-    clearAlerts();
-    const email = document.getElementById("loginEmail").value.trim();
-    const password = document.getElementById("loginPassword").value;
-
-    if (!email || !password) {
-      showError("Enter both email and password.");
-      return;
-    }
-
-    setLoading(loginBtn, true);
-    try {
-      const userCred = await signInWithEmailAndPassword(auth, email, password);
-      if (!userCred.user.emailVerified) {
-        await sendEmailVerification(userCred.user, actionCodeSettings);
-        showError("Email not verified yet. Resent confirmation link.");
-        return;
+      const result = await getRedirectResult(auth);
+      if (result && result.user) {
+        log("Google redirect sign-in succeeded.", "ok");
+        // onAuthStateChanged below will fire with this user and finish the sync.
       }
-      renderProfile(userCred.user);
-      await syncWithBackend(userCred.user);
     } catch (err) {
-      showError(err.message);
+      if (err && err.code) {
+        showError(err.message);
+      }
     } finally {
-      setLoading(loginBtn, false, "Log in");
+      sessionStorage.removeItem(GOOGLE_PENDING_KEY);
+      if (wasPending) setLoading(googleBtn, false, googleBtnLabel);
     }
-  };
+  }
+  handleRedirectResult();
 
-  window.forgotPassword = async () => {
-    clearAlerts();
-    const email = document.getElementById("loginEmail").value.trim();
-    if (!email) {
-      showError("Enter your email first.");
-      return;
-    }
-    try {
-      await sendPasswordResetEmail(auth, email);
-      showSuccess("Password reset link sent to your email.");
-    } catch (err) {
-      showError(err.message);
-    }
-  };
-
-  log("Console ready.");
+  log("Console ready. Watching auth state…");
 </script>
 </body>
 </html>
